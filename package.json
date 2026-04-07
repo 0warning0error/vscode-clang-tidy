@@ -55,6 +55,11 @@
                     "default": [],
                     "description": "Extra arguments to prepend to the compiler command line"
                 },
+                "clang-tidy.lintOnOpen": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Automatically lint files when they are opened"
+                },
                 "clang-tidy.lintOnSave": {
                     "type": "boolean",
                     "default": true,
@@ -64,6 +69,11 @@
                     "type": "boolean",
                     "default": false,
                     "description": "Automatically fix resolvable errors detected by clang-tidy in files when they are saved"
+                },
+                "clang-tidy.extraArgs": {
+                    "type": "array",
+                    "default": [],
+                    "description": "Extra arguments to pass directly to clang-tidy command line"
                 },
                 "clang-tidy.buildPath": {
                     "type": "string",

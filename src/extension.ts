@@ -94,33 +94,84 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     subscriptions.push(
-        workspace.onDidChangeTextDocument((doc) => {
-            const diagnostics = diagnosticCollection.get(doc.document.uri);
+        workspace.onDidChangeTextDocument((event) => {
+            const diagnostics = diagnosticCollection.get(event.document.uri);
             if (!diagnostics) {
                 return;
             }
 
             let newDiagnostics: vscode.Diagnostic[] = [];
+            let hasChanges = false;
+
             diagnostics.forEach((diagnostic) => {
-                const hasOverlap = doc.contentChanges.some((change) => {
-                    return change.range.intersection(diagnostic.range) !== undefined || (change.range.isSingleLine && change.range.start.line === diagnostic.range.start.line);
-                });
-                if (!hasOverlap) {
-                    newDiagnostics.push(diagnostic);
+                let adjustedDiagnostic = diagnostic;
+                
+                for (const change of event.contentChanges) {
+                    const changeRange = change.range;
+                    const changeText = change.text;
+                    const linesAdded = changeText.split('\n').length - 1;
+                    const linesRemoved = changeRange.end.line - changeRange.start.line;
+                    const lineDelta = linesAdded - linesRemoved;
+
+                    // 检查变更是否与诊断范围重叠
+                    if (changeRange.intersection(diagnostic.range) !== undefined ||
+                        (changeRange.isSingleLine && changeRange.start.line === diagnostic.range.start.line)) {
+                        // 变更与诊断重叠，标记为需要移除
+                        adjustedDiagnostic = null as unknown as vscode.Diagnostic;
+                        hasChanges = true;
+                        break;
+                    }
+
+                    // 如果变更在诊断之前，调整诊断的行号
+                    if (changeRange.start.line < diagnostic.range.start.line) {
+                        const newStartLine = diagnostic.range.start.line + lineDelta;
+                        const newEndLine = diagnostic.range.end.line + lineDelta;
+                        
+                        // 确保新行号有效
+                        if (newStartLine < 0 || newEndLine < 0) {
+                            adjustedDiagnostic = null as unknown as vscode.Diagnostic;
+                            hasChanges = true;
+                            break;
+                        }
+
+                        const newRange = new vscode.Range(
+                            newStartLine,
+                            diagnostic.range.start.character,
+                            newEndLine,
+                            diagnostic.range.end.character
+                        );
+                        
+                        adjustedDiagnostic = new vscode.Diagnostic(
+                            newRange,
+                            diagnostic.message,
+                            diagnostic.severity
+                        );
+                        adjustedDiagnostic.source = diagnostic.source;
+                        adjustedDiagnostic.code = diagnostic.code;
+                        adjustedDiagnostic.relatedInformation = diagnostic.relatedInformation;
+                        adjustedDiagnostic.tags = diagnostic.tags;
+                        hasChanges = true;
+                    }
+                }
+                
+                if (adjustedDiagnostic) {
+                    newDiagnostics.push(adjustedDiagnostic);
                 }
             });
 
             if (newDiagnostics.length === 0)
-                diagnosticCollection.delete(doc.document.uri);
-            else if (newDiagnostics.length !== diagnostics.length)
-                diagnosticCollection.set(doc.document.uri, newDiagnostics);
+                diagnosticCollection.delete(event.document.uri);
+            else if (hasChanges)
+                diagnosticCollection.set(event.document.uri, newDiagnostics);
         })
     );
 
     subscriptions.push(
         vscode.window.onDidChangeActiveTextEditor((editor) => {
             if (editor && !diagnosticCollection.has(editor.document.uri)) {
-                lintActiveDocAndSetDiagnostics();
+                if (workspace.getConfiguration("clang-tidy").get("lintOnOpen")) {
+                    lintActiveDocAndSetDiagnostics();
+                }
             }
         })
     );
@@ -161,7 +212,9 @@ export function activate(context: vscode.ExtensionContext) {
         )
     );
 
-    lintActiveDocAndSetDiagnostics();
+    if (workspace.getConfiguration("clang-tidy").get("lintOnOpen")) {
+        lintActiveDocAndSetDiagnostics();
+    }
 }
 
 /**

@@ -7,6 +7,7 @@ export interface ClangTidyResults {
 
 export interface ClangTidyDiagnostic {
     DiagnosticName: string;
+    BuildDirectory: string;
     DiagnosticMessage: {
         Message: string;
         FilePath: string;
@@ -28,6 +29,7 @@ export interface ClangTidyYaml {
     Diagnostics: [
         {
             DiagnosticName: string;
+            BuildDirectory?: string;
 
             // Old style diagnostic info. For older versions of clang-tidy
             Message?: string;

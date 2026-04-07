@@ -1,4 +1,5 @@
 import { ChildProcess, execFile, execFileSync } from "child_process";
+import * as path from "path";
 import * as vscode from "vscode";
 import * as jsYaml from "js-yaml";
 import {
@@ -41,6 +42,14 @@ function clangTidyArgs(files: string[], fixErrors: boolean) {
     if (buildPath.length > 0) {
         args.push(`-p=${buildPath}`);
     }
+
+    const extraArgs = vscode.workspace
+        .getConfiguration("clang-tidy")
+        .get("extraArgs") as Array<string>;
+
+    extraArgs.forEach((arg) => {
+        args.push(arg);
+    });
 
     if (fixErrors) {
         args.push("--fix");
@@ -208,26 +217,58 @@ function tidyOutputAsObject(clangTidyOutput: string) {
         Diagnostics: [],
     };
 
+    // Helper function to resolve relative paths to absolute paths
+    function resolveFilePath(filePath: string, buildDirectory: string): string {
+        if (!filePath) {
+            return filePath;
+        }
+        // Check if the path is absolute
+        if (path.isAbsolute(filePath)) {
+            return filePath;
+        }
+        // If relative path and BuildDirectory exists, join them
+        if (buildDirectory) {
+            return path.join(buildDirectory, filePath);
+        }
+        return filePath;
+    }
+
     tidyResults.Diagnostics.forEach((diag) => {
+        const buildDirectory = diag.BuildDirectory || "";
+
         if (diag.DiagnosticMessage) {
+            // Resolve relative paths in replacements
+            const resolvedReplacements = diag.DiagnosticMessage.Replacements.map(replacement => ({
+                ...replacement,
+                FilePath: resolveFilePath(replacement.FilePath, buildDirectory)
+            }));
+
             structuredResults.Diagnostics.push({
                 DiagnosticName: diag.DiagnosticName,
+                BuildDirectory: buildDirectory,
                 DiagnosticMessage: {
                     Message: diag.DiagnosticMessage.Message,
-                    FilePath: diag.DiagnosticMessage.FilePath,
+                    FilePath: resolveFilePath(diag.DiagnosticMessage.FilePath, buildDirectory),
                     FileOffset: diag.DiagnosticMessage.FileOffset,
-                    Replacements: diag.DiagnosticMessage.Replacements,
+                    Replacements: resolvedReplacements,
                     Severity: vscode.DiagnosticSeverity.Warning,
                 },
             });
         } else if (diag.Message && diag.FilePath && diag.FileOffset) {
+            // Resolve relative paths in replacements
+            const resolvedReplacements = (diag.Replacements || []).map(replacement => ({
+                ...replacement,
+                FilePath: resolveFilePath(replacement.FilePath, buildDirectory)
+            }));
+
             structuredResults.Diagnostics.push({
                 DiagnosticName: diag.DiagnosticName,
+                BuildDirectory: buildDirectory,
                 DiagnosticMessage: {
                     Message: diag.Message,
-                    FilePath: diag.FilePath,
+                    FilePath: resolveFilePath(diag.FilePath, buildDirectory),
                     FileOffset: diag.FileOffset,
-                    Replacements: diag.Replacements ? diag.Replacements : [],
+                    Replacements: resolvedReplacements,
                     Severity: vscode.DiagnosticSeverity.Warning,
                 },
             });
